@@ -1,0 +1,14 @@
+# Core dependencies for Optimizely decision event ingestion and BigQuery workflow
+
+boto3                   # AWS SDK for Python – access Optimizely S3 bucket
+google-cloud-bigquery  # BigQuery client for querying and uploading data
+google-cloud-storage   # GCS client (optional, if staging files to GCS)
+google-auth            # Authentication for GCP services
+pandas                 # Data manipulation and analysis
+pyarrow                # Required for efficient BigQuery uploads
+tqdm                   # Progress bars for loops
+python-dateutil        # Flexible date parsing
+requests               # HTTP requests (e.g. Optimizely API)
+
+# To install all dependencies at once, run:
+# pip install -r requirements.txt
