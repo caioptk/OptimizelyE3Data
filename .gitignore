@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+*.log
+
+# Environment
+.venv/
+.env
+*.json
+
+# Downloads and temp files
+downloads/
+*.parquet
