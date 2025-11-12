@@ -3,7 +3,7 @@
 
 A step‑by‑step runbook to fetch Optimizely decision event files and load them into BigQuery. Written for rerunnable, long‑running jobs (with safe resume and de‑duplication).
 
-> **Scope**: Decision event data from **2024‑10‑30 → 2025‑10‑29** across multiple experiments. Target dataset: `optimizely_e3` in project `caio-sandbox-468412`.
+> **Scope**: Fetch and load Optimizely decision event data into BigQuery. Supports any date range and dataset/project configuration.
 
 ---
 
@@ -62,15 +62,46 @@ caffeinate -dimsu -- command_you_run_here
 
 > Remember to restore your normal settings after the load finishes.
 
+### 🧠 Understanding Events vs. Decisions
+
+Optimizely exports multiple types of data to S3. This repo primarily focuses on **decision events**, which represent when a user is bucketed into an experiment or feature flag.
+
+However, some analyses — such as bot detection using user agent strings — may require **event-level data** (e.g., `pageview`, `click`, `custom` events).
+
+If you're working with traffic quality or user agent filtering, ensure you're referencing the correct S3 prefix and schema for **event data**, not just decisions.
+
 ---
 
 ## 3) Test your Optimizely Personal Access Token (PAT)
 
-Some environments require passing the PAT via CLI args for our scripts.
+Set your environment variables before running scripts. This allows secure access to Optimizely and S3.
+
+### **PowerShell (Windows):**
 
 ```powershell
-# Example
-python test_pat.py --pat "$env:OPTLY_PAT"
+$env:OPTIMIZELY_PAT = 'your_pat_here'
+$env:OPTIMIZELY_ACCOUNT_ID = 'your_account_id'
+$env:S3_BUCKET = 'optimizely-events-data'
+$env:S3_PREFIX = 'v1/account_id=your_account_id/type=decisions/'
+$env:OPTIMIZELY_EXPORT_CRED_DURATION = '1h'
+$env:AWS_REGION = 'us-east-1'
+```
+
+### **bash (macOS/Linux):**
+
+```bash
+export OPTIMIZELY_PAT="your_pat_here"
+export OPTIMIZELY_ACCOUNT_ID="your_account_id"
+export S3_BUCKET="optimizely-events-data"
+export S3_PREFIX="v1/account_id=your_account_id/type=decisions/"
+export OPTIMIZELY_EXPORT_CRED_DURATION="1h"
+export AWS_REGION="us-east-1"
+```
+
+Then test your PAT:
+
+```powershell
+python test_pat.py --pat $env:OPTIMIZELY_PAT
 ```
 
 > If environment variables don’t work for your script, pass `--pat ABC...` explicitly when calling the downloader.
@@ -79,18 +110,27 @@ python test_pat.py --pat "$env:OPTLY_PAT"
 
 ## 4) Authenticate to Google Cloud & set the project
 
+Use either **user authentication** or a **service account** to access GCP resources.
+
+### **User authentication:**
+
 ```powershell
-# If using user auth
 gcloud auth login
 
 # To check your current auth status:
 gcloud auth list
+```
 
-# Or if using a service account
-# gcloud auth activate-service-account --key-file "C:\path\to\key.json"
+### **Service account authentication:**
 
-# Set project
-gcloud config set project caio-sandbox-468412
+```powershell
+gcloud auth activate-service-account --key-file "C:\path\to\your-key.json"
+```
+
+### **Set your project (replace with your own project ID):**
+
+```powershell
+gcloud config set project <your-gcp-project-id>
 ```
 
 Ensure the BigQuery API is enabled and you have permissions to create datasets/tables and run load jobs.
@@ -108,62 +148,91 @@ bq --location=EU mk -d --description "Optimizely decision events" optimizely_e3
 
 ---
 
-## 6) Download decision event files from Optimizely
+## 6) Download decision or event files from Optimizely
 
-Use the downloader script that accepts the PAT via CLI.
+Use the downloader script `load_optimizely_decisions_v3.py` which supports both decision and event data.
+
+This version flattens the folder structure and truncates long event names to avoid Windows file system errors.
 
 ```powershell
-# Example CLI – replace script & args to match your repo
-python get_events.py \
-  --pat "<YOUR_PAT>" \
-  --start-date 2024-10-30 \
-  --end-date   2025-10-29 \
-  --out-dir    data/optimizely_decisions \
-  --resume      # if supported – skips already-downloaded files
+# Example CLI – replace args to match your account and date range
+python load_optimizely_decisions_v3.py `
+  --auth optimizely `
+  --pat $env:OPTIMIZELY_PAT `
+  --account-id <your-account-id> `
+  --type events `  # or 'decisions' for decision event data
+  --start-date 2025-10-01 `
+  --end-date   2025-11-06 `
+  --out-dir    downloads `
+  --resume
 ```
 
-**Verify files landed:**
-```powershell
-Get-ChildItem data/optimizely_decisions -Recurse | Measure-Object
-```
+> AWS authentication is handled automatically via temporary credentials from the Optimizely Auth API when using `--auth optimizely`.
 
-> If your run was interrupted, simply re‑run with the same dates and `--resume`/"skip existing" behaviour. If `--resume` isn’t implemented, the script should still be idempotent if it skips existing files by name.
+> If your run was interrupted, simply re-run with the same dates and `--resume` to skip already-downloaded files.
 
 ---
 
 ## 7) (Optional) Stage to GCS before loading (if your loader expects GCS URIs)
 
-If your `stage_and_load_to_bq.py` script stages to Cloud Storage first, create a bucket and sync the local files:
+If your `stage_and_load_to_bq_gcs.py` script stages to Cloud Storage first, create a bucket and sync the local files:
 
 ```powershell
 # Create bucket once (example location)
-gsutil mb -l EU gs://caio-optly-staging
+gsutil mb -l EU gs://<your-gcs-bucket>
 
 # Sync local files to GCS
-gsutil -m rsync -r data/optimizely_decisions gs://caio-optly-staging/optimizely_decisions
+gsutil -m rsync -r downloads gs://<your-gcs-bucket>/optimizely_events
 ```
 
 ---
 
 ## 8) Load to BigQuery
 
-Run your loader. It can read from local files or from GCS, depending on implementation.
+You have two paths:
 
+### Option A: Stage to GCS and load to BigQuery (Recommended for large batches)
+
+This script reads its configuration from **environment variables** (no CLI flags). It will:
+
+1. Upload all local `.parquet` files from `LOCAL_DIR` to `gs://$GCS_BUCKET/$GCS_PREFIX/`  
+   (skips files that already exist with the same size), and
+2. Load those GCS URIs into BigQuery as append jobs.
+
+**PowerShell example:**
 ```powershell
-# Example – adjust args to your script
-python stage_and_load_to_bq.py \
-  --source        data/optimizely_decisions \
-  --project       caio-sandbox-468412 \
-  --dataset       optimizely_e3 \
-  --table         decision_events \
-  --schema        schemas/decision_events.json \
-  --write-mode    append \
-  --partition-col event_date \
-  --batch-size    500      # if supported, triggers periodic loads (tables appear earlier)
+$env:GCP_PROJECT_ID = "<your-gcp-project-id>"
+$env:BQ_DATASET     = "optimizely_e3"
+$env:BQ_TABLE_RAW   = "event_data"
+$env:BQ_LOCATION    = "EU"
+
+$env:GCS_BUCKET     = "<your-gcs-bucket>"      # e.g. optly-e3-staging
+$env:GCS_PREFIX     = "optimizely_events"      # folder/prefix in the bucket (no leading slash)
+
+$env:LOCAL_DIR      = "downloads"              # where your .parquet files live
+
+python .\stage_and_load_to_bq_gcs.py
 ```
 
-> **Why you might see datasets but no tables yet:** if the script batches rows and only calls `load_table_from_uri()`/`load_table_from_file()` at the end, BigQuery tables will only appear after the first successful batch load. If the process stopped around *"file 300 of 22,000"* before any batch finished, the dataset would exist with no tables yet.
+> **Tip:** If you’ve already staged files to GCS, you can re-run the script; it will
+> skip re-uploads (same size) and proceed to the BigQuery load phase.
 
+### Option B: Load directly from local files (Best for small batches or few files)
+
+```powershell
+python stage_and_load_to_bq_local.py `
+  --source        downloads `
+  --project       <your-gcp-project-id> `
+  --dataset       optimizely_e3 `
+  --table         event_data `
+  --write-mode    append `
+  --partition-col event_date `
+  --batch-size    500
+```
+
+> **Note:** Option B can quickly hit BigQuery’s per-table load-job quota on large datasets. Prefer Option A for bulk loads.
+>
+> Tables may not appear until the first batch finishes loading.
 ---
 
 ## 9) Monitor progress & job history

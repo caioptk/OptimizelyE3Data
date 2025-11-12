@@ -9,13 +9,14 @@ from google.cloud import bigquery
 from google.api_core.exceptions import NotFound
 
 # ---- CONFIG ----
-PROJECT_ID   = os.getenv("GCP_PROJECT_ID", "caio-sandbox-468412")
-LOCAL_DIR    = os.getenv("LOCAL_DIR", r"C:\Users\caiopetelinkar\source\repos\OptimizelyE3Data\v1\downloads\v1\account_id=22397541806\type=decisions")
-GCS_BUCKET   = os.getenv("GCS_BUCKET", "optly-events-22397541806")   # change if you prefer
-GCS_PREFIX   = os.getenv("GCS_PREFIX", "decisions/")                  # a folder inside your bucket
+PROJECT_ID   = os.getenv("GCP_PROJECT_ID", "<your-gcp-project-id>")
+LOCAL_DIR    = os.getenv("LOCAL_DIR", "downloads")
+GCS_BUCKET   = os.getenv("GCS_BUCKET", "<your-gcs-bucket>")
+GCS_PREFIX   = os.getenv("GCS_PREFIX", "events/")                   # a folder inside your bucket
 BQ_DATASET   = os.getenv("BQ_DATASET", "optimizely_e3")
-BQ_TABLE_RAW = os.getenv("BQ_TABLE_RAW", "decisions_raw")
+BQ_TABLE_RAW = os.getenv("BQ_TABLE_RAW", "event_data_with_user_agents")
 LOCATION     = os.getenv("BQ_LOCATION", "EU")  # BigQuery dataset + GCS bucket should be the same region
+
 
 # Max 10,000 URIs per BigQuery load job; stay well under the limit
 CHUNK_SIZE = 9000

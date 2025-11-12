@@ -167,6 +167,15 @@ def parse_s3_path(s3_path: str) -> Tuple[str, str]:
 
 
 def ensure_local_path(root_dir: str, key: str) -> str:
+    parts = key.split('/')
+    date = next((p.split('=')[1] for p in parts if p.startswith('date=')), 'unknown')
+    event = next((p.split('=')[1] for p in parts if p.startswith('event=')), 'unknown')
+    filename = parts[-1]
+    safe_event = event[:50].replace(' ', '_')
+    flat_name = f'{date}_{safe_event}_{filename}'
+    local_path = os.path.join(root_dir, flat_name)
+    os.makedirs(os.path.dirname(local_path), exist_ok=True)
+    return local_path
     local_path = os.path.join(root_dir, *key.split("/"))
     os.makedirs(os.path.dirname(local_path), exist_ok=True)
     return local_path

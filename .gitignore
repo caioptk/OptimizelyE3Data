@@ -1,13 +1,27 @@
-# Python
+
+# Python cache
 __pycache__/
 *.py[cod]
 *.log
 
-# Environment
+# Virtual environment
 .venv/
-.env
-*.json
 
-# Downloads and temp files
+# Secrets / credentials
+.env
+*service-account*.json
+*credentials*.json
+*secret*.json
+*.pem
+
+# Local data / outputs
 downloads/
 *.parquet
+*.jsonl
+*.jsonl.gz
+
+# IDE / OS junk
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
